@@ -1,0 +1,16 @@
+{
+  "name": "monad-mint-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for minting NFTs on MONAD Network",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "node-telegram-bot-api": "^0.60.0",
+    "web3": "^1.8.2",
+    "winston": "^3.8.2"
+  }
+}
