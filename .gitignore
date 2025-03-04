@@ -1,0 +1,18 @@
+# Environment variables
+.env
+
+# Node modules
+node_modules/
+
+# Logs
+logs/
+*.log
+
+# Sensitive data
+secure_wallets.json
+saved_contracts.json
+tx_history.json
+
+# OS-specific files
+.DS_Store
+Thumbs.db
