@@ -71,20 +71,68 @@ class TelegramFormatter {
            `/status - Check NFT contract supply status\n\n` +
            
            `*Contract Management:*\n` +
+           `/contadd \`<address>\` \`[label]\` - Add a new contract address\n` +
+           `/contuse \`<address>\` - Switch to a different contract\n` +
+           `/contrem \`<address>\` - Remove a contract address\n` +
+           `/contracts - List all saved contracts\n\n` +
+           
+           `*Wallet Management:*\n` +
+           `/addwallet \`<private_key>\` - Add a new wallet\n` +
+           `/wallets - List all configured wallets\n` +
+           `/togglewallet \`<address>\` - Enable/disable a wallet\n` +
+           `/removewallet \`<address>\` - Remove a wallet\n\n` +
+           
+           `*History:*\n` +
+           `/history \`[count]\` - Show recent transaction history\n` +
+           `/wallethistory \`<address>\` - Show history for a specific wallet`;
+  }
+  
+  static plainHelpText() {
+    return `🤖 MONAD Mint Bot\n\n` +
+           `Available Commands:\n\n` +
+           `Minting Commands:\n` +
+           `/mint - Start minting with all active wallets\n` +
+           `/status - Check NFT contract supply status\n\n` +
+           
+           `Contract Management:\n` +
            `/contadd <address> [label] - Add a new contract address\n` +
            `/contuse <address> - Switch to a different contract\n` +
            `/contrem <address> - Remove a contract address\n` +
            `/contracts - List all saved contracts\n\n` +
            
-           `*Wallet Management:*\n` +
+           `Wallet Management:\n` +
            `/addwallet <private_key> - Add a new wallet\n` +
            `/wallets - List all configured wallets\n` +
            `/togglewallet <address> - Enable/disable a wallet\n` +
            `/removewallet <address> - Remove a wallet\n\n` +
            
-           `*History:*\n` +
+           `History:\n` +
            `/history [count] - Show recent transaction history\n` +
            `/wallethistory <address> - Show history for a specific wallet`;
+  }
+  
+  static helpTextHTML() {
+    return `<b>🤖 MONAD Mint Bot</b>\n\n` +
+           `<b>Available Commands:</b>\n\n` +
+           `<b>Minting Commands:</b>\n` +
+           `/mint - Start minting with all active wallets\n` +
+           `/status - Check NFT contract supply status\n\n` +
+           
+           `<b>Contract Management:</b>\n` +
+           `/contadd &lt;address&gt; [label] - Add a new contract address\n` +
+           `/contuse &lt;address&gt; - Switch to a different contract\n` +
+           `/contrem &lt;address&gt; - Remove a contract address\n` +
+           `/contracts - List all saved contracts\n\n` +
+           
+           `<b>Wallet Management:</b>\n` +
+           `/addwallet &lt;private_key&gt; - Add a new wallet\n` +
+           `/wallets - List all configured wallets\n` +
+           `/togglewallet &lt;address&gt; - Enable/disable a wallet\n` +
+           `/removewallet &lt;address&gt; - Remove a wallet\n\n` +
+           
+           `<b>History:</b>\n` +
+           `/history [count] - Show recent transaction history\n` +
+           `/wallethistory &lt;address&gt; - Show history for a specific wallet`;
   }
   
   static contractAdded(contract) {
@@ -103,6 +151,18 @@ class TelegramFormatter {
   static contractRemoved(address) {
     return `✅ *Contract Removed*\n` +
            `Address: ${this.code(address)}`;
+  }
+  
+  static escapeMarkdown(text) {
+    if (!text) return '';
+    return text
+      .replace(/\*/g, '\\*')
+      .replace(/_/g, '\\_')
+      .replace(/`/g, '\\`')
+      .replace(/\[/g, '\\[')
+      .replace(/\]/g, '\\]')
+      .replace(/\(/g, '\\(')
+      .replace(/\)/g, '\\)');
   }
 }
 
