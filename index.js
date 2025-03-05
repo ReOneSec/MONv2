@@ -77,85 +77,113 @@ async function sendMonadMintTx(walletAddress, msg, retryCount = 0) {
     if (!wallet || !wallet.active) {
       throw new Error(`Wallet ${walletAddress} not found or inactive`);
     }
-    
-    const activeContract = contractManager.getActiveContract();
-    if (!activeContract) {
+
+    const activeContractAddress = contractManager.getActiveContractAddress();
+    if (!activeContractAddress) {
       throw new Error('No active contract configured');
     }
-    
-    const activeContractAddress = contractManager.getActiveContractAddress();
-    
-    logAction('mint_attempt', { 
-      address: walletAddress, 
+
+    const activeContract = contractManager.getActiveContract();
+    const methodNames = contractManager.getActiveContractMethods();
+    if (!activeContract.methods[methodNames.mint]) {
+      throw new Error(`Mint method '${methodNames.mint}' not found in contract. Verify configuration.`);
+    }
+
+    const mintPrice = await contractManager.getMintPrice();
+    let gasPrice;
+    try {
+      const currentGasPrice = await web3.eth.getGasPrice();
+      gasPrice = Math.floor(parseInt(currentGasPrice) * 1.15).toString();
+      logger.info('Dynamic gas price', { current: currentGasPrice, adjusted: gasPrice });
+    } catch (e) {
+      gasPrice = CONFIG.GAS_PRICE;
+      logger.warn('Using fallback gas price', { price: gasPrice });
+    }
+
+    const gasLimit = 800000; // Adjusted gas limit
+    logAction('mint_attempt', {
+      address: walletAddress,
       retryCount,
-      contractAddress: activeContractAddress
+      contractAddress: activeContractAddress,
+      mintMethod: methodNames.mint,
+      mintPrice,
+      gasPrice,
+      gasLimit
     });
-    
+
     const account = web3.eth.accounts.privateKeyToAccount(wallet.privateKey);
-    const nonceData = await txManager.getNonce(account.address);
-    
+    const nonce = await txManager.getNonce(account.address);
+    const mintData = activeContract.methods[methodNames.mint]().encodeABI();
+
     const tx = {
       from: account.address,
       to: activeContractAddress,
-      data: activeContract.methods.mint().encodeABI(), // Fixed: Added 'data:' field name
-      gas: CONFIG.GAS_LIMIT,
-      gasPrice: CONFIG.GAS_PRICE,
+      data: mintData,
+      gas: gasLimit,
+      gasPrice: gasPrice,
       chainId: CONFIG.CHAIN_ID,
-      nonce: nonceData.nonce
+      nonce,
+      value: mintPrice
     };
 
+    logger.info('Transaction parameters', {
+      from: account.address,
+      to: activeContractAddress,
+      method: methodNames.mint,
+      gas: gasLimit,
+      gasPrice,
+      value: mintPrice
+    });
+
     const signedTx = await account.signTransaction(tx);
-    
-    await safeSendMessage(
-      msg.chat.id, 
-      `⏳ Processing mint from ${TelegramFormatter.code(account.address.substring(0, 10) + '...')}`, 
+    const ethValue = web3.utils.fromWei(mintPrice, 'ether');
+    const mintMsg = mintPrice !== '0' ? ` with ${ethValue} ETH` : '';
+
+    bot.sendMessage(
+      msg.chat.id,
+      `⏳ Processing mint (method: ${methodNames.mint}) from ${TelegramFormatter.code(account.address.substring(0, 10) + '...')}${mintMsg}`,
       { parse_mode: 'Markdown' }
     );
-    
+
     const receipt = await txManager.sendTransaction(signedTx, account.address, {
       to: activeContractAddress,
-      gasPrice: CONFIG.GAS_PRICE,
-      gasLimit: CONFIG.GAS_LIMIT,
-      timeout: CONFIG.TX_TIMEOUT
+      gasPrice: gasPrice,
+      gasLimit: gasLimit,
+      timeout: CONFIG.TX_TIMEOUT,
+      value: mintPrice
     });
-    
+
     walletManager.updateLastUsed(account.address);
-    
-    await safeSendMessage(
-      msg.chat.id, 
-      TelegramFormatter.transactionSuccess(receipt.transactionHash, account.address), 
-      { parse_mode: 'Markdown' }
-    );
-    
-    // Release the nonce if the transaction was successful
-    if (nonceData.release) {
-      nonceData.release();
-    }
-    
+    bot.sendMessage(msg.chat.id, TelegramFormatter.transactionSuccess(receipt.transactionHash, account.address), { parse_mode: 'Markdown' });
     return receipt;
   } catch (error) {
+    if (error.message.includes('Maximum supply')) {
+      bot.sendMessage(msg.chat.id, `❌ Mint Failed: Maximum supply reached`, { parse_mode: 'Markdown' });
+      throw error;
+    }
+
+    if (error.message.includes('not found in contract')) {
+      bot.sendMessage(msg.chat.id, `❌ ${error.message}`, { parse_mode: 'Markdown' });
+      throw error;
+    }
+
     if (retryCount < CONFIG.MAX_RETRY_COUNT) {
-      await safeSendMessage(
-        msg.chat.id, 
-        `🔄 Retrying (${retryCount + 1}/${CONFIG.MAX_RETRY_COUNT})...\nError: ${error.message.substring(0, 100)}`, 
-        { parse_mode: 'Markdown' }
-      );
-      
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      bot.sendMessage(msg.chat.id, `🔄 Retrying (${retryCount + 1}/${CONFIG.MAX_RETRY_COUNT})...\nError: ${error.message.substring(0, 100)}`, { parse_mode: 'Markdown' });
+      const waitTime = 3000 * Math.pow(2, retryCount);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
       return sendMonadMintTx(walletAddress, msg, retryCount + 1);
     }
-    
-    logger.error('mint_failed', { address: walletAddress, error: error.message, stack: error.stack });
-    
-    await safeSendMessage(
-      msg.chat.id, 
-      TelegramFormatter.transactionFailed(error.message, walletAddress), 
-      { parse_mode: 'Markdown' }
-    );
-    
+
+    logger.error('mint_failed', {
+      address: walletAddress,
+      error: error.message,
+      stack: error.stack
+    });
+
+    bot.sendMessage(msg.chat.id, TelegramFormatter.transactionFailed(error.message, walletAddress), { parse_mode: 'Markdown' });
     throw error;
   }
-}
+      }
 
 // ========== TELEGRAM COMMAND HANDLERS ========== //
 bot.onText(/\/start/, async (msg) => {
@@ -258,39 +286,194 @@ bot.onText(/\/contracts/, async (msg) => {
   );
 });
 
-bot.onText(/\/contadd (\S+)(?:\s+(.+))?/, async (msg, match) => {
-  if (msg.from.id !== CONFIG.ADMIN_ID) return;
+bot.onText(/\/contaddforce (\S+)(?:\s+(.+))?/, async (msg, match) => {
+  if (!checkAdminAccess(msg)) return;
   
   const address = match[1].trim();
   const label = match[2] ? match[2].trim() : '';
   
   if (!Validator.isValidContractAddress(address)) {
-    return await safeSendMessage(msg.chat.id, '❌ Invalid contract address format');
+    return bot.sendMessage(msg.chat.id, '❌ Invalid contract address format');
+  }
+  
+  try {
+    // Check if the address has code (is a contract)
+    const code = await web3.eth.getCode(address);
+    if (code === '0x') {
+      return bot.sendMessage(msg.chat.id, '❌ No contract code found at this address!');
+    }
+    
+    // Add contract without validation
+    const defaultMethods = {
+      mint: 'mint',
+      totalSupply: 'totalSupply',
+      maxSupply: 'MAX_SUPPLY'
+    };
+    
+    const newContract = contractManager.addContract(address, label, defaultMethods, true);
+    
+    let successMsg = `✅ *Contract Added (Forced)*\n` +
+                     `Address: \`${address}\`\n` +
+                     `Label: ${label || 'Unnamed Contract'}\n\n` +
+                     `Default methods set. Use /inspectcontract to detect available methods and /setmethods to configure them.`;
+    
+    bot.sendMessage(
+      msg.chat.id, 
+      successMsg, 
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    bot.sendMessage(msg.chat.id, `❌ Error adding contract: ${error.message}`);
+  }
+});
+bot.onText(/\/inspectcontract/, async (msg) => {
+  if (!checkAdminAccess(msg)) return;
+  
+  const activeContractAddress = contractManager.getActiveContractAddress();
+  if (!activeContractAddress) {
+    return bot.sendMessage(msg.chat.id, '❌ No active contract configured.');
+  }
+  
+  bot.sendMessage(msg.chat.id, `🔍 Inspecting contract ${activeContractAddress}...`);
+  
+  try {
+    const inspectionResults = await contractManager.inspectContractMethods(activeContractAddress);
+    
+    if (!inspectionResults.valid) {
+      return bot.sendMessage(msg.chat.id, `❌ Inspection failed: ${inspectionResults.error}`);
+    }
+    
+    let message = '📋 *Contract Method Detection Results*\n\n';
+    
+    if (inspectionResults.methods.length > 0) {
+      message += '*Detected Methods:*\n';
+      inspectionResults.methods.forEach(method => {
+        message += `- \`${method}\`\n`;
+      });
+      
+      message += '\nUse `/setmethods mintMethod,totalSupplyMethod,maxSupplyMethod` to configure contract methods.';
+    } else {
+      message += '❌ Could not detect any standard methods.\n\n';
+      message += 'You may need to set methods manually with `/setmethods` command.';
+    }
+    
+    // Add gas price info
+    try {
+      const gasPrice = await web3.eth.getGasPrice();
+      const gasPriceGwei = web3.utils.fromWei(gasPrice, 'gwei');
+      message += `\n\n*Network Gas Price:* ${gasPriceGwei} Gwei\n`;
+      message += `*Bot Gas Price:* ${web3.utils.fromWei(CONFIG.GAS_PRICE, 'gwei')} Gwei\n`;
+      message += `*Gas Limit:* ${CONFIG.GAS_LIMIT}\n`;
+    } catch (e) {
+      message += `\nError getting gas price: ${e.message}\n`;
+    }
+    
+    bot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
+  } catch (error) {
+    bot.sendMessage(msg.chat.id, `❌ Inspection error: ${error.message}`);
+  }
+});
+bot.onText(/\/setmethods (.+)/, async (msg, match) => {
+  if (!checkAdminAccess(msg)) return;
+  
+  const activeContractAddress = contractManager.getActiveContractAddress();
+  if (!activeContractAddress) {
+    return bot.sendMessage(msg.chat.id, '❌ No active contract configured. Use /contadd first.');
+  }
+  
+  try {
+    // Parse method names from command (format: mintMethod,totalSupplyMethod,maxSupplyMethod)
+    const methods = match[1].trim().split(',');
+    
+    if (methods.length < 1 || methods.length > 3) {
+      return bot.sendMessage(msg.chat.id, '❌ Invalid format. Use: /setmethods mintMethod,totalSupplyMethod,maxSupplyMethod');
+    }
+    
+    // Create methods object
+    const methodsObj = {
+      mint: methods[0],
+      totalSupply: methods.length > 1 ? methods[1] : 'totalSupply',
+      maxSupply: methods.length > 2 ? methods[2] : 'MAX_SUPPLY'
+    };
+    
+    // Update contract methods
+    const updatedContract = contractManager.updateContractMethods(activeContractAddress, methodsObj);
+    
+    bot.sendMessage(
+      msg.chat.id, 
+      `✅ Contract methods updated:\n` +
+      `Mint: ${methodsObj.mint}\n` +
+      `Total Supply: ${methodsObj.totalSupply}\n` +
+      `Max Supply: ${methodsObj.maxSupply}`, 
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    bot.sendMessage(msg.chat.id, `❌ Error updating methods: ${error.message}`);
+  }
+});
+
+bot.onText(/\/contadd (\S+)(?:\s+(.+))?/, async (msg, match) => {
+  if (!checkAdminAccess(msg)) return;
+  
+  const address = match[1].trim();
+  const label = match[2] ? match[2].trim() : '';
+  
+  if (!Validator.isValidContractAddress(address)) {
+    return bot.sendMessage(msg.chat.id, '❌ Invalid contract address format');
   }
   
   try {
     // Validate contract before adding
-    await safeSendMessage(msg.chat.id, '⏳ Validating contract address...');
-    const validationResult = await contractManager.validateContract(address);
+    bot.sendMessage(msg.chat.id, '⏳ Validating contract address...');
+    const validationResults = await contractManager.validateContract(address);
     
-    if (typeof validationResult === 'object' && validationResult.valid === false) {
-      return await safeSendMessage(msg.chat.id, `❌ Invalid contract: ${validationResult.reason}`);
-    } else if (validationResult === false) {
-      return await safeSendMessage(msg.chat.id, '❌ Invalid contract: Required methods not found');
+    if (!validationResults.valid) {
+      let errorMsg = '❌ Invalid contract: Required methods not found.';
+      
+      if (validationResults.errors && validationResults.errors.length > 0) {
+        errorMsg += '\n\n*Errors:*\n';
+        validationResults.errors.slice(0, 3).forEach(err => {
+          errorMsg += `- ${err}\n`;
+        });
+      }
+      
+      errorMsg += '\n\nTry using /contaddforce to add without validation, then use /inspectcontract and /setmethods to configure manually.';
+      
+      return bot.sendMessage(msg.chat.id, errorMsg, { parse_mode: 'Markdown' });
     }
     
-    const newContract = contractManager.addContract(address, label);
-    logAction('contract_added', { address, label });
+    // Extract detected method names
+    const methods = {
+      mint: validationResults.methods.mint?.name || 'mint',
+      totalSupply: validationResults.methods.totalSupply?.name || 'totalSupply',
+      maxSupply: validationResults.methods.maxSupply?.name || 'MAX_SUPPLY'
+    };
     
-    await safeSendMessage(
+    // Add the contract
+    const newContract = contractManager.addContract(address, label, methods);
+    
+    let successMsg = `✅ *Contract Added Successfully*\n` +
+                     `Address: \`${address}\`\n` +
+                     `Label: ${label || 'Unnamed Contract'}\n\n` +
+                     `*Detected Methods:*\n` +
+                     `- Mint: ${methods.mint}\n` +
+                     `- Total Supply: ${methods.totalSupply}\n` +
+                     `- Max Supply: ${methods.maxSupply}\n\n` +
+                     `Use /contuse ${address} to activate this contract.`;
+    
+    bot.sendMessage(
       msg.chat.id, 
-      TelegramFormatter.contractAdded(newContract), 
+      successMsg, 
       { parse_mode: 'Markdown' }
     );
   } catch (error) {
-    await safeSendMessage(msg.chat.id, `❌ Error adding contract: ${error.message}`);
+    bot.sendMessage(
+      msg.chat.id, 
+      `❌ Error adding contract: ${error.message}\n\nTry using /contaddforce to bypass validation.`
+    );
   }
 });
+
 
 bot.onText(/\/contuse (\S+)/, async (msg, match) => {
   if (msg.from.id !== CONFIG.ADMIN_ID) return;
