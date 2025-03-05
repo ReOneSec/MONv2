@@ -291,6 +291,32 @@ bot.onText(/\/contadd (\S+)(?:\s+(.+))?/, async (msg, match) => {
     await safeSendMessage(msg.chat.id, `❌ Error adding contract: ${error.message}`);
   }
 });
+// In your telegram.js setupBotCommands function
+
+// Set contract address
+bot.onText(/\/setcontract (.+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  
+  if (!isAdmin(msg.from.id)) {
+    return bot.sendMessage(chatId, '⛔ You are not authorized to use this command');
+  }
+
+  const newAddress = match[1].trim(); // Capture the address from the command
+  console.log(`Attempting to set contract address: ${newAddress}`); // Debug log
+
+  // Validate the contract address
+  if (!Validator.isValidContractAddress(newAddress)) {
+    return bot.sendMessage(chatId, '❌ Invalid contract address format');
+  }
+
+  CONFIG.CONTRACT_ADDRESS = newAddress; // Set new contract address
+  if (initializeContract()) {
+    saveConfig({ CONTRACT_ADDRESS: newAddress });
+    await sendMessage(chatId, `📝 Contract address updated to \`${newAddress}\``);
+  } else {
+    await sendMessage(chatId, '❌ Failed to initialize contract with new address');
+  }
+});
 
 bot.onText(/\/contuse (\S+)/, async (msg, match) => {
   if (msg.from.id !== CONFIG.ADMIN_ID) return;
