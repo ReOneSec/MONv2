@@ -27,10 +27,23 @@ class Validator {
     return web3.utils.isAddress(address);
   }
   
+  // validation.js
+const Web3 = require('web3');
+const web3 = new Web3(); // No provider needed for validation
+
+class Validator {
   static isValidContractAddress(address) {
-    // Basic validation for contract address
-    // In a production environment, you might want to check if it's actually a contract
-    return web3.utils.isAddress(address);
+    if (!web3.utils.isAddress(address)) {
+      return false; // Check if address is a valid Ethereum address
+    }
+    
+    // Additional checks could be added here, such as querying the blockchain.
+    return true; // Return true if basic checks pass
+  }
+}
+
+module.exports = Validator;
+
   }
 }
 
