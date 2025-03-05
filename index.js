@@ -300,7 +300,37 @@ bot.onText(/\/setcontract (.+)/, async (msg, match) => {
   if (!isAdmin(msg.from.id)) {
     return bot.sendMessage(chatId, '⛔ You are not authorized to use this command');
   }
+// Define the isAdmin function
+function isAdmin(userId) {
+  const ADMIN_IDS = [6668515216]; // Replace with your actual admin user IDs
+  return ADMIN_IDS.includes(userId);
+}
 
+// Set contract address
+bot.onText(/\/setcontract (.+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  
+  // Check if the user is an admin
+  if (!isAdmin(msg.from.id)) {
+    return bot.sendMessage(chatId, '⛔ You are not authorized to use this command');
+  }
+
+  const newAddress = match[1].trim(); // Capture the address from the command
+  console.log(`Attempting to set contract address: ${newAddress}`); // Debug log
+
+  // Validate the contract address
+  if (!Validator.isValidContractAddress(newAddress)) {
+    return bot.sendMessage(chatId, '❌ Invalid contract address format');
+  }
+
+  CONFIG.CONTRACT_ADDRESS = newAddress; // Set new contract address
+  if (initializeContract()) {
+    saveConfig({ CONTRACT_ADDRESS: newAddress });
+    await sendMessage(chatId, `📝 Contract address updated to \`${newAddress}\``);
+  } else {
+    await sendMessage(chatId, '❌ Failed to initialize contract with new address');
+  }
+});
   const newAddress = match[1].trim(); // Capture the address from the command
   console.log(`Attempting to set contract address: ${newAddress}`); // Debug log
 
