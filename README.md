@@ -12,3 +12,16 @@ MONAD-MINT/
 ├── index.js         # Main entry point
 ├── .env             # Environment variables (not in git)
 ├── logs/            # Directory for log files
+
+
+
+# Competitive Analysis Table
+
+| Feature | AspireExamine | Testbook | Gradeup | Examly |
+|---------|--------------|----------|---------|--------|
+| No Registration Required | ✅ | ❌ | ❌ | ❌ |
+| Real-time Updates | ✅ | ✅ | ❌ | ✅ |
+| PDF Reports | ✅ | ✅ | ✅ | ✅ |
+| Image Support | ✅ | ✅ | ✅ | ✅ |
+| Offline Access | ✅ | ❌ | ❌ | ❌ |
+| Session Backup | ✅ | ✅ | ❌ | ❌ |
