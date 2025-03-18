@@ -15,13 +15,3 @@ MONAD-MINT/
 
 
 
-# Competitive Analysis Table
-
-| Feature | AspireExamine | Testbook | Gradeup | Examly |
-|---------|--------------|----------|---------|--------|
-| No Registration Required | ✅ | ❌ | ❌ | ❌ |
-| Real-time Updates | ✅ | ✅ | ❌ | ✅ |
-| PDF Reports | ✅ | ✅ | ✅ | ✅ |
-| Image Support | ✅ | ✅ | ✅ | ✅ |
-| Offline Access | ✅ | ❌ | ❌ | ❌ |
-| Session Backup | ✅ | ✅ | ❌ | ❌ |
